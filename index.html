@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Star Vanguard - Космический Шутер с Прокачкой и Боссами</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+    <div id="game-wrapper">
+        <!-- Render Canvas -->
+        <canvas id="gameCanvas"></canvas>
+
+        <!-- UI LAYER OVERLAY -->
+        <div id="ui-layer">
+            <!-- TOP HUD -->
+            <div class="hud-top">
+                <!-- Vitals: HP & Shield -->
+                <div class="hud-panel vitals-group">
+                    <div>
+                        <div class="bar-label">
+                            <span>ПРОЧНОСТЬ</span>
+                            <span id="hp-val">100</span>
+                        </div>
+                        <div class="bar-container">
+                            <div id="hp-fill" class="bar-fill hp-fill" style="width: 100%;"></div>
+                        </div>
+                    </div>
+                    <div>
+                        <div class="bar-label">
+                            <span>ЭНЕРГО-ЩИТ</span>
+                            <span id="shield-val">25</span>
+                        </div>
+                        <div class="bar-container">
+                            <div id="shield-fill" class="bar-fill shield-fill" style="width: 100%;"></div>
+                        </div>
+                    </div>
+                    <div>
+                        <div class="bar-label">
+                            <span>СТАМИНА (РЫВОК)</span>
+                            <span id="stamina-val">100%</span>
+                        </div>
+                        <div class="bar-container">
+                            <div id="stamina-fill" class="bar-fill stamina-fill" style="width: 100%;"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Wave Counter & Enemy Counter -->
+                <div class="hud-panel wave-badge">
+                    РАУНД <span class="hud-wave-val">1</span>
+                </div>
+                <div class="hud-panel enemy-badge">
+                    ВРАГИ: <span id="hud-enemies-val">8</span>
+                </div>
+
+                <!-- Auto-wave toggle in HUD -->
+                <label class="auto-wave-toggle" title="Автоматически начинать следующий раунд">
+                    <input type="checkbox" id="chk-hud-autowave">
+                    <span>Автостарт волн</span>
+                </label>
+
+                <!-- Currency & Score -->
+                <div class="hud-panel" style="gap: 16px;">
+                    <div class="currency-badge">
+                        <span class="icon">💎</span>
+                        <span class="hud-credits-val">100</span>
+                    </div>
+                    <div class="score-badge">
+                        СЧЕТ: <span class="hud-score-val">0</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- BOSS HUD (Drops from top when boss spawns) -->
+            <div id="boss-hud">
+                <div class="boss-title-row">
+                    <span id="boss-name">ЭГИДА-ДРЕДНОУТ</span>
+                    <span style="font-size: 11px; color: var(--gold);">⚠️ ФАЗА БОССА</span>
+                </div>
+                <div class="boss-hp-bar">
+                    <div id="boss-hp-fill" class="boss-hp-fill" style="width: 100%;"></div>
+                </div>
+            </div>
+
+            <!-- BOSS WARNING FLASH BANNER -->
+            <div id="boss-warning-banner">
+                ⚠️ ВНИМАНИЕ! ОБНАРУЖЕН БОСС: ЭГИДА-ДРЕДНОУТ ⚠️
+            </div>
+
+            <!-- BOTTOM HUD -->
+            <div class="hud-bottom">
+                <!-- Bomb / EMP Ability Button -->
+                <div class="bomb-container">
+                    <button id="btn-hud-bomb" class="bomb-btn" title="Активировать ЭМИ-сверхбомбу [E / ПКМ]">
+                        💣
+                        <div class="bomb-charge-ring"></div>
+                    </button>
+                    <div style="font-size: 11px; color: var(--text-muted); font-weight: 700;">
+                        СВЕРХБОМБА<br><span style="color: var(--cyan);">[E] / [ПКМ]</span>
+                    </div>
+                </div>
+
+                <!-- In-Game Shop & Controls -->
+                <div class="hud-actions" style="display: flex; align-items: center; gap: 10px;">
+                    <button id="btn-hud-shop" class="hud-shop-btn" title="Магазин улучшений прямо во время игры [Клавиша B]">
+                        🛒 МАГАЗИН [B]
+                    </button>
+                    <button id="btn-hud-sound" class="hud-btn" title="Включить / Выключить звук">🔊</button>
+                    <button id="btn-hud-pause" class="hud-btn" title="Пауза [Esc / P]">⏸️</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- MODAL: MAIN MENU -->
+        <div id="menu-screen" class="modal-overlay active">
+            <div class="modal-card">
+                <div class="game-logo">STAR VANGUARD</div>
+                <div class="game-sublogo">КОСМИЧЕСКИЙ БОЕВОЙ СИМУЛЯТОР С ПРОКАЧКОЙ</div>
+
+                <div class="menu-buttons">
+                    <button id="btn-continue" class="btn btn-primary" style="font-size: 17px; padding: 14px; display: none; background: linear-gradient(135deg, #06d6a0, #00b4d8); border-color: #06d6a0; box-shadow: 0 0 20px rgba(6, 214, 160, 0.4);">
+                        ▶️ ПРОДОЛЖИТЬ (РАУНД <span id="continue-wave-val">1</span>)
+                    </button>
+                    <button id="btn-play" class="btn btn-primary" style="font-size: 18px; padding: 15px;">
+                        🚀 НОВЫЙ БОЙ
+                    </button>
+                    <button id="btn-ships" class="btn btn-secondary">
+                        🛸 ВЫБОР КОРАБЛЯ
+                    </button>
+                    <button id="btn-guide" class="btn btn-secondary">
+                        📖 КАК ИГРАТЬ
+                    </button>
+                </div>
+
+                <div class="menu-stats-bar">
+                    <div>РЕКОРД: <b id="menu-best-score">0</b></div>
+                    <div>КРИСТАЛЛЫ: <b class="hud-credits-val">100</b> 💎</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- MODAL: SHIPS FLEET -->
+        <div id="ships-modal" class="modal-overlay">
+            <div class="modal-card" style="max-width: 760px;">
+                <div class="modal-header">
+                    <div class="modal-title">
+                        🛸 <span>КОСМИЧЕСКИЙ</span> <span class="glow">ФЛОТ</span>
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 16px;">
+                        <div class="currency-badge">
+                            💎 <span class="hud-credits-val">0</span>
+                        </div>
+                        <button class="modal-close">&times;</button>
+                    </div>
+                </div>
+                <div class="modal-body">
+                    <div id="ships-container" class="ships-grid">
+                        <!-- Populated by game.js -->
+                    </div>
+                </div>
+                <div style="padding: 14px 24px; border-top: 1px solid rgba(255,255,255,0.08); display: flex; justify-content: flex-end;">
+                    <button class="btn btn-primary btn-modal-close">ГОТОВО</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- MODAL: HOW TO PLAY / GUIDE -->
+        <div id="guide-modal" class="modal-overlay">
+            <div class="modal-card">
+                <div class="modal-header">
+                    <div class="modal-title">📖 КАК ИГРАТЬ И УПРАВЛЕНИЕ</div>
+                    <button class="modal-close">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <h3 style="color: var(--cyan); margin-bottom: 12px; font-size: 16px;">🎮 Управление (Клавиатура + Мышь или Только Клавиатура):</h3>
+                    <div class="guide-keys">
+                        <div class="key-item">
+                            <span class="key-badge">W A S D</span>
+                            <span>Полет во все 8 сторон</span>
+                        </div>
+                        <div class="key-item">
+                            <span class="key-badge">Мышь</span>
+                            <span>Вращение корабля на 360°</span>
+                        </div>
+                        <div class="key-item">
+                            <span class="key-badge">ЛКМ / Space</span>
+                            <span>Плазменный огонь</span>
+                        </div>
+                        <div class="key-item">
+                            <span class="key-badge">Стрелочки</span>
+                            <span>Прицеливание и стрельба с клавиатуры</span>
+                        </div>
+                        <div class="key-item">
+                            <span class="key-badge">Shift / F</span>
+                            <span>Рывок (Dash) со стаминой</span>
+                        </div>
+                        <div class="key-item">
+                            <span class="key-badge">E / Q / ПКМ</span>
+                            <span>ЭМИ Сверхбомба</span>
+                        </div>
+                        <div class="key-item">
+                            <span class="key-badge">B</span>
+                            <span>Магазин в бою (Пауза)</span>
+                        </div>
+                        <div class="key-item">
+                            <span class="key-badge">Esc / P</span>
+                            <span>Пауза</span>
+                        </div>
+                        <div class="key-item">
+                            <span class="key-badge">Touch</span>
+                            <span>Сенсорные экраны</span>
+                        </div>
+                    </div>
+
+                    <h3 style="color: var(--gold); margin: 16px 0 10px; font-size: 16px;">🌟 Волны, Боссы и Магазин:</h3>
+                    <div style="font-size: 13px; line-height: 1.6; color: var(--text-muted);">
+                        <p>👾 <b>Враги атакуют со всех сторон арены на 360°</b>. Вращайтесь и отстреливайтесь!</p>
+                        <p>⚡ <b>Уровни прокачки врагов</b>: с каждой волной мобы становятся выше уровнем, получают энергощиты и новые залпы!</p>
+                        <p>💰 <b>С врагов выпадают золотые монетки</b>, которые притягиваются магнитом.</p>
+                        <p>🎁 <b>После КАЖДОГО раунда</b> открывается выбор 1 из 3 бесплатных улучшений (перков)!</p>
+                        <p>💀 <b>Каждые 5 волн (5, 10, 15...)</b> прилетает гигантский Босс.</p>
+                        <p>🚀 <b>Запуск волн</b>: следующая волна начинается вручную по кнопке, либо включите «Автостарт волн»!</p>
+                        <p>🛰️ <b>Магазин улучшений</b>: открывайте в любой момент клавишей [B] или между волнами!</p>
+                        <p>💾 <b>Сохранения</b>: ваш забег и все улучшения автоматически сохраняются!</p>
+                    </div>
+                </div>
+                <div style="padding: 14px 24px; border-top: 1px solid rgba(255,255,255,0.08); display: flex; justify-content: flex-end;">
+                    <button class="btn btn-primary btn-modal-close">ПОНЯТНО</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- MODAL: ROGUELIKE PERK CHOICE (After Every Single Round) -->
+        <div id="perk-modal" class="modal-overlay">
+            <div class="modal-card">
+                <div class="modal-header">
+                    <div>
+                        <div class="modal-title">🌟 ВЫБЕРИТЕ <span class="glow">УЛУЧШЕНИЕ</span></div>
+                        <div id="perk-modal-subtitle" style="font-size: 13px; color: var(--text-muted); margin-top: 2px;">
+                            Раунд завершен! Выберите 1 постоянный перк на этот забег:
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-body">
+                    <div id="perk-cards-container" class="perk-cards-container">
+                        <!-- 3 Perk cards populated by game.js -->
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- MODAL: ROUND CLEAR / INTERMISSION SCREEN -->
+        <div id="round-clear-modal" class="modal-overlay">
+            <div class="modal-card">
+                <div style="font-size: 32px; font-weight: 900; color: var(--green); text-shadow: 0 0 25px var(--green-glow); margin-bottom: 6px;" id="rc-title">
+                    РАУНД 1 ЗАВЕРШЕН!
+                </div>
+                <div style="font-size: 14px; color: var(--text-muted); margin-bottom: 20px;" id="rc-subtitle">
+                    Сектор космоса временно зачищен от противников.
+                </div>
+
+                <div class="game-over-stats" style="margin-bottom: 20px;">
+                    <div class="stat-box">
+                        <div id="rc-score" class="stat-box-val">0</div>
+                        <div class="stat-box-lbl">Текущий счет</div>
+                    </div>
+                    <div class="stat-box">
+                        <div id="rc-kills" class="stat-box-val">0</div>
+                        <div class="stat-box-lbl">Сбито врагов</div>
+                    </div>
+                    <div class="stat-box">
+                        <div id="rc-credits" class="stat-box-val" style="color: var(--gold);">0</div>
+                        <div class="stat-box-lbl">Кристаллы 💎</div>
+                    </div>
+                    <div class="stat-box">
+                        <div id="rc-next-val" class="stat-box-val" style="color: var(--cyan);">РАУНД 2</div>
+                        <div class="stat-box-lbl">Следующий бой</div>
+                    </div>
+                </div>
+
+                <div style="margin-bottom: 22px; display: flex; justify-content: center;">
+                    <label class="auto-wave-toggle" title="Автоматически начинать следующий раунд">
+                        <input type="checkbox" id="chk-modal-autowave">
+                        <span>Автостарт следующих волн</span>
+                    </label>
+                </div>
+
+                <div style="display: flex; gap: 14px; justify-content: center; flex-wrap: wrap;">
+                    <button id="btn-rc-shop" class="btn btn-secondary" style="font-size: 15px; padding: 12px 20px;">
+                        🛒 МАГАЗИН ПРЕДМЕТОВ [B]
+                    </button>
+                    <button id="btn-rc-next" class="btn btn-primary" style="font-size: 16px; padding: 12px 26px;">
+                        🚀 НАЧАТЬ СЛЕДУЮЩИЙ РАУНД ➔
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- MODAL: IN-GAME & POST-BOSS SHOP -->
+        <div id="shop-modal" class="modal-overlay">
+            <div class="modal-card">
+                <div class="modal-header">
+                    <div>
+                        <div class="modal-title" id="shop-modal-title">🛰️ ОРБИТАЛЬНЫЙ <span class="glow">МАГАЗИН</span></div>
+                        <div id="shop-modal-subtitle" style="font-size: 12px; color: var(--text-muted); margin-top: 2px;">
+                            Покупайте улучшения корабля прямо сейчас! [Игра на паузе]
+                        </div>
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 14px;">
+                        <div class="currency-badge">
+                            💎 <span class="hud-credits-val">0</span>
+                        </div>
+                        <button class="modal-close" id="btn-shop-close">&times;</button>
+                    </div>
+                </div>
+                <div class="modal-body">
+                    <div id="station-shop-container" class="station-shop-grid">
+                        <!-- Populated by game.js (+5 Shield, Stamina, HP, Damage, Repair, etc.) -->
+                    </div>
+                </div>
+                <div style="padding: 14px 24px; border-top: 1px solid rgba(255,255,255,0.08); display: flex; justify-content: space-between; align-items: center;">
+                    <div id="shop-modal-footer-hint" style="font-size: 13px; color: var(--text-muted);">
+                        Улучшения применяются моментально!
+                    </div>
+                    <button id="btn-next-wave-shop" class="btn btn-primary" style="font-size: 16px;">
+                        В БОЙ: ПРОДОЛЖИТЬ ➔
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- MODAL: PAUSE -->
+        <div id="pause-modal" class="modal-overlay">
+            <div class="modal-card" style="max-width: 420px; text-align: center;">
+                <div class="modal-title" style="justify-content: center; margin-bottom: 20px;">⏸️ ПАУЗА</div>
+                <div style="display: flex; flex-direction: column; gap: 12px;">
+                    <button id="btn-resume" class="btn btn-primary">ПРОДОЛЖИТЬ</button>
+                    <button id="btn-pause-save" class="btn btn-secondary" style="border-color: var(--green); color: var(--green);">💾 СОХРАНИТЬ И ВЫЙТИ В МЕНЮ</button>
+                    <button id="btn-pause-menu" class="btn btn-secondary">В ГЛАВНОЕ МЕНЮ (БЕЗ СОХРАНЕНИЯ)</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- MODAL: GAME OVER -->
+        <div id="gameover-modal" class="modal-overlay">
+            <div class="modal-card" style="max-width: 500px; text-align: center;">
+                <div style="font-size: 30px; font-weight: 900; color: var(--red); text-shadow: 0 0 20px var(--red-glow); margin-bottom: 6px;">
+                    КОРАБЛЬ УНИЧТОЖЕН
+                </div>
+                <div style="font-size: 14px; color: var(--text-muted); margin-bottom: 16px;">
+                    Ваш корабль пал в неравном космическом бою
+                </div>
+
+                <div class="game-over-stats">
+                    <div class="stat-box">
+                        <div id="go-score" class="stat-box-val">0</div>
+                        <div class="stat-box-lbl">Итоговый счет</div>
+                    </div>
+                    <div class="stat-box">
+                        <div id="go-wave" class="stat-box-val">1</div>
+                        <div class="stat-box-lbl">Достигнутая волна</div>
+                    </div>
+                    <div class="stat-box">
+                        <div id="go-kills" class="stat-box-val">0</div>
+                        <div class="stat-box-lbl">Сбито врагов</div>
+                    </div>
+                    <div class="stat-box">
+                        <div id="go-credits" class="stat-box-val" style="color: var(--gold);">0</div>
+                        <div class="stat-box-lbl">Собрано кристаллов</div>
+                    </div>
+                </div>
+
+                <div style="display: flex; gap: 12px; justify-content: center;">
+                    <button id="btn-gameover-ships" class="btn btn-secondary">
+                        🛸 ВЫБОР КОРАБЛЯ
+                    </button>
+                    <button id="btn-restart" class="btn btn-primary">
+                        🚀 ПОВТОРИТЬ БОЙ
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="audio.js"></script>
+    <script src="game.js"></script>
+</body>
+</html>
