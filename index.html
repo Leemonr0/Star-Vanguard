@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>Star Vanguard - Космический Шутер с Прокачкой и Боссами</title>
     <link rel="stylesheet" href="styles.css">
 </head>
@@ -113,6 +113,34 @@
             </div>
         </div>
 
+        <!-- MOBILE TOUCH CONTROLS OVERLAY -->
+        <div id="mobile-controls">
+            <!-- Left Side: Virtual Joystick Zone -->
+            <div id="joystick-zone">
+                <div id="joystick-base">
+                    <div id="joystick-knob"></div>
+                </div>
+            </div>
+
+            <!-- Right Side: Action Touch Buttons -->
+            <div id="mobile-actions">
+                <button id="btn-touch-dash" class="touch-btn touch-dash" title="Рывок [⚡]">
+                    <span class="touch-icon">⚡</span>
+                    <span class="touch-text">РЫВОК</span>
+                </button>
+                <button id="btn-touch-bomb" class="touch-btn touch-bomb" title="Сверхбомба [💣]">
+                    <span class="touch-icon">💣</span>
+                    <span class="touch-text">БОМБА</span>
+                    <span id="touch-bomb-pct" class="touch-bomb-pct">100%</span>
+                    <div class="touch-bomb-ring" id="touch-bomb-ring"></div>
+                </button>
+                <div class="touch-row-mini">
+                    <button id="btn-touch-shop" class="touch-mini-btn" title="Магазин [🛒]">🛒</button>
+                    <button id="btn-touch-pause" class="touch-mini-btn" title="Пауза [⏸️]">⏸️</button>
+                </div>
+            </div>
+        </div>
+
         <!-- MODAL: MAIN MENU -->
         <div id="menu-screen" class="modal-overlay active">
             <div class="modal-card">
@@ -132,6 +160,18 @@
                     <button id="btn-guide" class="btn btn-secondary">
                         📖 КАК ИГРАТЬ
                     </button>
+                </div>
+
+                <!-- THEME SELECTOR IN MAIN MENU -->
+                <div class="theme-selector-box">
+                    <div class="theme-selector-title">🎨 ТЕМА ОФОРМЛЕНИЯ</div>
+                    <div class="theme-buttons-row">
+                        <button class="theme-btn active" data-theme="neon">КИБЕР-НЕОН</button>
+                        <button class="theme-btn" data-theme="solar">СОЛНЦЕ</button>
+                        <button class="theme-btn" data-theme="matrix">МАТРИЦА</button>
+                        <button class="theme-btn" data-theme="cryo">КРИО</button>
+                        <button class="theme-btn" data-theme="synthwave">СИНТВЕЙВ</button>
+                    </div>
                 </div>
 
                 <div class="menu-stats-bar">
@@ -208,9 +248,9 @@
                             <span class="key-badge">Esc / P</span>
                             <span>Пауза</span>
                         </div>
-                        <div class="key-item">
-                            <span class="key-badge">Touch</span>
-                            <span>Сенсорные экраны</span>
+                        <div class="key-item" style="grid-column: 1 / -1; border-color: var(--cyan); background: rgba(0, 240, 255, 0.05);">
+                            <span class="key-badge">📱 Смартфоны</span>
+                            <span>Слева: джойстик полета. Справа: касание для огня и прицела. Кнопки: ⚡ Рывок, 💣 Бомба, 🛒 Магазин</span>
                         </div>
                     </div>
 
@@ -333,8 +373,21 @@
 
         <!-- MODAL: PAUSE -->
         <div id="pause-modal" class="modal-overlay">
-            <div class="modal-card" style="max-width: 420px; text-align: center;">
-                <div class="modal-title" style="justify-content: center; margin-bottom: 20px;">⏸️ ПАУЗА</div>
+            <div class="modal-card" style="max-width: 440px; text-align: center;">
+                <div class="modal-title" style="justify-content: center; margin-bottom: 14px;">⏸️ ПАУЗА</div>
+
+                <!-- THEME SELECTOR IN PAUSE MODAL -->
+                <div class="theme-selector-box" style="margin-bottom: 14px;">
+                    <div class="theme-selector-title">🎨 СМЕНИТЬ ТЕМУ ОФОРМЛЕНИЯ</div>
+                    <div class="theme-buttons-row">
+                        <button class="theme-btn active" data-theme="neon">НЕОН</button>
+                        <button class="theme-btn" data-theme="solar">СОЛНЦЕ</button>
+                        <button class="theme-btn" data-theme="matrix">МАТРИЦА</button>
+                        <button class="theme-btn" data-theme="cryo">КРИО</button>
+                        <button class="theme-btn" data-theme="synthwave">СИНТВЕЙВ</button>
+                    </div>
+                </div>
+
                 <div style="display: flex; flex-direction: column; gap: 12px;">
                     <button id="btn-resume" class="btn btn-primary">ПРОДОЛЖИТЬ</button>
                     <button id="btn-pause-save" class="btn btn-secondary" style="border-color: var(--green); color: var(--green);">💾 СОХРАНИТЬ И ВЫЙТИ В МЕНЮ</button>

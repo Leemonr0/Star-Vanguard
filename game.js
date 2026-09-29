@@ -260,15 +260,62 @@ const STATION_SHOP_ITEMS = [
     }
 ];
 
+const THEMES_DATA = {
+    neon: {
+        id: 'neon',
+        name: 'КИБЕР-НЕОН',
+        bg: '#04060e',
+        grid: 'rgba(0, 240, 255, 0.05)',
+        starColors: ['#00f0ff', '#a855f7', '#ffffff']
+    },
+    solar: {
+        id: 'solar',
+        name: 'СОЛНЦЕ',
+        bg: '#0a0402',
+        grid: 'rgba(255, 159, 28, 0.06)',
+        starColors: ['#ff9f1c', '#ff5e57', '#ffd166', '#ffffff']
+    },
+    matrix: {
+        id: 'matrix',
+        name: 'МАТРИЦА',
+        bg: '#020a06',
+        grid: 'rgba(6, 214, 160, 0.06)',
+        starColors: ['#06d6a0', '#70e000', '#ffffff']
+    },
+    cryo: {
+        id: 'cryo',
+        name: 'КРИО',
+        bg: '#020712',
+        grid: 'rgba(56, 189, 248, 0.06)',
+        starColors: ['#38bdf8', '#818cf8', '#ffffff']
+    },
+    synthwave: {
+        id: 'synthwave',
+        name: 'СИНТВЕЙВ',
+        bg: '#0a020e',
+        grid: 'rgba(255, 42, 133, 0.06)',
+        starColors: ['#ff2a85', '#c084fc', '#ffd166', '#ffffff']
+    }
+};
+
 class Game {
     constructor() {
         this.canvas = document.getElementById('gameCanvas');
         this.ctx = this.canvas.getContext('2d');
 
-        this.width = 960;
-        this.height = 720;
-        this.canvas.width = this.width;
-        this.canvas.height = this.height;
+        this.currentTheme = 'neon';
+        this.bossWarningActive = false;
+        this.bossPendingSpawn = false;
+
+        // Mobile / Touch controls state
+        this.joystick = { x: 0, y: 0, active: false };
+        this.touchShooting = false;
+        this.joystickTouchId = null;
+        this.aimTouchId = null;
+
+        this.resizeCanvas();
+        window.addEventListener('resize', () => this.resizeCanvas());
+        window.addEventListener('orientationchange', () => setTimeout(() => this.resizeCanvas(), 100));
 
         this.state = 'MENU'; // 'MENU', 'PLAYING', 'PAUSED', 'PERK_SELECT', 'STATION_SHOP', 'ROUND_CLEAR', 'GAMEOVER'
         this.credits = 100; // Coins
@@ -337,12 +384,67 @@ class Game {
         requestAnimationFrame((t) => this.loop(t));
     }
 
+    resizeCanvas() {
+        const w = window.innerWidth || 960;
+        const h = window.innerHeight || 720;
+        this.width = w;
+        this.height = h;
+        this.canvas.width = w;
+        this.canvas.height = h;
+
+        if (this.stars && this.stars.length > 0) {
+            this.stars.forEach(s => {
+                if (s.x > w) s.x = Math.random() * w;
+                if (s.y > h) s.y = Math.random() * h;
+            });
+        }
+        if (this.player) {
+            this.player.x = Math.max(30, Math.min(this.width - 30, this.player.x));
+            this.player.y = Math.max(30, Math.min(this.height - 30, this.player.y));
+        }
+    }
+
+    applyTheme(themeId, save = true) {
+        if (!THEMES_DATA[themeId]) themeId = 'neon';
+        this.currentTheme = themeId;
+        document.body.dataset.theme = themeId;
+
+        // Update active class on all theme buttons
+        document.querySelectorAll('.theme-btn').forEach(btn => {
+            if (btn.dataset.theme === themeId) {
+                btn.classList.add('active');
+            } else {
+                btn.classList.remove('active');
+            }
+        });
+
+        // Re-colorize stars to match theme
+        if (this.stars && this.stars.length > 0) {
+            const colors = THEMES_DATA[themeId].starColors;
+            this.stars.forEach(s => {
+                s.color = colors[Math.floor(Math.random() * colors.length)];
+            });
+        }
+
+        if (save) {
+            try {
+                localStorage.setItem('star_vanguard_theme', themeId);
+            } catch (e) {}
+        }
+    }
+
     // --- SAVE / LOAD SYSTEM ---
     loadSave() {
         try {
+            const savedTheme = localStorage.getItem('star_vanguard_theme');
+            if (savedTheme && THEMES_DATA[savedTheme]) {
+                this.currentTheme = savedTheme;
+            }
+
             const saved = localStorage.getItem('star_vanguard_save_v1');
             if (saved) {
                 const data = JSON.parse(saved);
+                if (data.theme && THEMES_DATA[data.theme]) this.currentTheme = data.theme;
                 if (data.credits !== undefined) this.credits = data.credits;
                 if (data.highScore !== undefined) this.highScore = data.highScore;
                 if (data.selectedShipId && this.ships[data.selectedShipId]) this.selectedShipId = data.selectedShipId;
@@ -357,6 +459,7 @@ class Game {
                 }
                 this.savedRun = data.savedRun || null;
             }
+            this.applyTheme(this.currentTheme, false);
         } catch (e) {
             console.warn('Save load warning:', e);
         }
@@ -407,6 +510,7 @@ class Game {
                 autoWaveEnabled: this.autoWaveEnabled,
                 soundEnabled: window.soundManager ? window.soundManager.enabled : true,
                 unlockedShips: unlockedList,
+                theme: this.currentTheme,
                 savedRun: runData
             };
             localStorage.setItem('star_vanguard_save_v1', JSON.stringify(data));
@@ -452,6 +556,8 @@ class Game {
         this.particles = [];
         this.floatingTexts = [];
         this.currentBoss = null;
+        this.bossWarningActive = false;
+        this.bossPendingSpawn = false;
         this.bombCharge = 100;
         this.isWaveTransitioning = false;
         this.shopOpenedFromGame = false;
@@ -489,14 +595,18 @@ class Game {
     // --- STARFIELD ---
     initStarfield() {
         this.stars = [];
-        for (let i = 0; i < 160; i++) {
+        const count = Math.max(160, Math.min(320, Math.floor((this.width * this.height) / 4200)));
+        const theme = THEMES_DATA[this.currentTheme] || THEMES_DATA.neon;
+        const colors = theme.starColors;
+
+        for (let i = 0; i < count; i++) {
             this.stars.push({
                 x: Math.random() * this.width,
                 y: Math.random() * this.height,
-                size: Math.random() * 2 + 0.6,
-                speedX: (Math.random() - 0.5) * 15,
-                speedY: (Math.random() - 0.5) * 15,
-                color: Math.random() > 0.8 ? '#00f0ff' : Math.random() > 0.6 ? '#a855f7' : '#ffffff',
+                size: Math.random() * 2.2 + 0.6,
+                speedX: (Math.random() - 0.5) * 16,
+                speedY: (Math.random() - 0.5) * 16,
+                color: colors[Math.floor(Math.random() * colors.length)],
                 alpha: Math.random() * 0.7 + 0.3
             });
         }
@@ -514,14 +624,15 @@ class Game {
     }
 
     drawStars() {
-        this.ctx.fillStyle = '#04060e';
+        const theme = THEMES_DATA[this.currentTheme] || THEMES_DATA.neon;
+        this.ctx.fillStyle = theme.bg;
         this.ctx.fillRect(0, 0, this.width, this.height);
 
         // Center arena grid lines
         this.ctx.save();
-        this.ctx.strokeStyle = 'rgba(0, 240, 255, 0.04)';
+        this.ctx.strokeStyle = theme.grid;
         this.ctx.lineWidth = 1;
-        const gridSize = 60;
+        const gridSize = 70;
         for (let x = 0; x < this.width; x += gridSize) {
             this.ctx.beginPath();
             this.ctx.moveTo(x, 0);
@@ -536,9 +647,13 @@ class Game {
         }
 
         // Ambient radial nebula
-        const grad = this.ctx.createRadialGradient(this.width / 2, this.height / 2, 50, this.width / 2, this.height / 2, 500);
-        grad.addColorStop(0, 'rgba(168, 85, 247, 0.08)');
-        grad.addColorStop(1, 'transparent');
+        const grad = this.ctx.createRadialGradient(
+            this.width / 2, this.height / 2, 50,
+            this.width / 2, this.height / 2,
+            Math.max(this.width, this.height) * 0.68
+        );
+        grad.addColorStop(0, 'rgba(0, 0, 0, 0)');
+        grad.addColorStop(1, 'rgba(0, 0, 0, 0.75)');
         this.ctx.fillStyle = grad;
         this.ctx.fillRect(0, 0, this.width, this.height);
 
@@ -619,31 +734,194 @@ class Game {
 
         this.canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 
-        this.canvas.addEventListener('touchmove', (e) => {
-            e.preventDefault();
-            if (e.touches.length > 0) {
-                const rect = this.canvas.getBoundingClientRect();
-                this.mouse.x = (e.touches[0].clientX - rect.left) * (this.width / rect.width);
-                this.mouse.y = (e.touches[0].clientY - rect.top) * (this.height / rect.height);
-                this.mouse.active = true;
-                this.mouse.isDown = true;
-            }
-        }, { passive: false });
+        // First touch activates touch mode and controls
+        window.addEventListener('touchstart', () => {
+            document.body.classList.add('touch-active');
+            const wrapper = document.getElementById('game-wrapper');
+            if (wrapper) wrapper.classList.add('touch-mode');
+        }, { once: true, passive: true });
 
+        // --- VIRTUAL JOYSTICK (LEFT THUMB) ---
+        const joystickZone = document.getElementById('joystick-zone');
+        const joystickBase = document.getElementById('joystick-base');
+        const joystickKnob = document.getElementById('joystick-knob');
+
+        const updateJoystick = (touch) => {
+            if (!joystickBase || !joystickKnob) return;
+            const rect = joystickBase.getBoundingClientRect();
+            const centerX = rect.left + rect.width / 2;
+            const centerY = rect.top + rect.height / 2;
+            let dx = touch.clientX - centerX;
+            let dy = touch.clientY - centerY;
+            const maxRadius = Math.max(30, rect.width / 2 - 8);
+            const dist = Math.hypot(dx, dy);
+
+            if (dist > maxRadius) {
+                dx = (dx / dist) * maxRadius;
+                dy = (dy / dist) * maxRadius;
+            }
+
+            joystickKnob.style.transform = `translate(${dx}px, ${dy}px)`;
+            this.joystick = {
+                x: dx / maxRadius,
+                y: dy / maxRadius,
+                active: true
+            };
+        };
+
+        const resetJoystick = () => {
+            if (joystickKnob) joystickKnob.style.transform = 'translate(0px, 0px)';
+            this.joystick = { x: 0, y: 0, active: false };
+            this.joystickTouchId = null;
+        };
+
+        if (joystickZone) {
+            joystickZone.addEventListener('touchstart', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                window.soundManager.init();
+                const touch = e.changedTouches[0];
+                this.joystickTouchId = touch.identifier;
+                updateJoystick(touch);
+            }, { passive: false });
+
+            joystickZone.addEventListener('touchmove', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                for (let i = 0; i < e.changedTouches.length; i++) {
+                    const t = e.changedTouches[i];
+                    if (t.identifier === this.joystickTouchId) {
+                        updateJoystick(t);
+                        break;
+                    }
+                }
+            }, { passive: false });
+
+            const endJoystick = (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                for (let i = 0; i < e.changedTouches.length; i++) {
+                    if (e.changedTouches[i].identifier === this.joystickTouchId) {
+                        resetJoystick();
+                        break;
+                    }
+                }
+            };
+
+            joystickZone.addEventListener('touchend', endJoystick, { passive: false });
+            joystickZone.addEventListener('touchcancel', endJoystick, { passive: false });
+        }
+
+        // --- CANVAS TOUCH (RIGHT THUMB: AIM & CONTINUOUS FIRE) ---
         this.canvas.addEventListener('touchstart', (e) => {
             window.soundManager.init();
-            if (e.touches.length > 0) {
-                const rect = this.canvas.getBoundingClientRect();
-                this.mouse.x = (e.touches[0].clientX - rect.left) * (this.width / rect.width);
-                this.mouse.y = (e.touches[0].clientY - rect.top) * (this.height / rect.height);
-                this.mouse.active = true;
-                this.mouse.isDown = true;
-            }
-        });
+            if (this.state !== 'PLAYING') return;
 
-        this.canvas.addEventListener('touchend', () => {
-            this.mouse.isDown = false;
-        });
+            const rect = this.canvas.getBoundingClientRect();
+            for (let i = 0; i < e.changedTouches.length; i++) {
+                const t = e.changedTouches[i];
+                if (t.identifier !== this.joystickTouchId) {
+                    this.aimTouchId = t.identifier;
+                    const canvasX = (t.clientX - rect.left) * (this.width / rect.width);
+                    const canvasY = (t.clientY - rect.top) * (this.height / rect.height);
+                    this.mouse.x = canvasX;
+                    this.mouse.y = canvasY;
+                    this.mouse.active = true;
+                    this.mouse.isDown = true;
+                    this.touchShooting = true;
+
+                    if (this.player) {
+                        this.player.angle = Math.atan2(canvasY - this.player.y, canvasX - this.player.x);
+                    }
+                    break;
+                }
+            }
+        }, { passive: true });
+
+        this.canvas.addEventListener('touchmove', (e) => {
+            if (this.state !== 'PLAYING') return;
+            const rect = this.canvas.getBoundingClientRect();
+            for (let i = 0; i < e.changedTouches.length; i++) {
+                const t = e.changedTouches[i];
+                if (t.identifier === this.aimTouchId) {
+                    const canvasX = (t.clientX - rect.left) * (this.width / rect.width);
+                    const canvasY = (t.clientY - rect.top) * (this.height / rect.height);
+                    this.mouse.x = canvasX;
+                    this.mouse.y = canvasY;
+                    this.mouse.active = true;
+                    this.mouse.isDown = true;
+                    this.touchShooting = true;
+
+                    if (this.player) {
+                        this.player.angle = Math.atan2(canvasY - this.player.y, canvasX - this.player.x);
+                    }
+                    break;
+                }
+            }
+        }, { passive: true });
+
+        const endAimTouch = (e) => {
+            for (let i = 0; i < e.changedTouches.length; i++) {
+                if (e.changedTouches[i].identifier === this.aimTouchId) {
+                    this.aimTouchId = null;
+                    this.touchShooting = false;
+                    this.mouse.isDown = false;
+                    break;
+                }
+            }
+        };
+
+        this.canvas.addEventListener('touchend', endAimTouch, { passive: true });
+        this.canvas.addEventListener('touchcancel', endAimTouch, { passive: true });
+
+        // --- MOBILE TOUCH BUTTONS ---
+        const btnTouchDash = document.getElementById('btn-touch-dash');
+        if (btnTouchDash) {
+            btnTouchDash.addEventListener('touchstart', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                if (this.state === 'PLAYING') this.dashPlayer();
+            }, { passive: false });
+            btnTouchDash.addEventListener('click', (e) => {
+                if (this.state === 'PLAYING') this.dashPlayer();
+            });
+        }
+
+        const btnTouchBomb = document.getElementById('btn-touch-bomb');
+        if (btnTouchBomb) {
+            btnTouchBomb.addEventListener('touchstart', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                if (this.state === 'PLAYING') this.useBomb();
+            }, { passive: false });
+            btnTouchBomb.addEventListener('click', (e) => {
+                if (this.state === 'PLAYING') this.useBomb();
+            });
+        }
+
+        const btnTouchShop = document.getElementById('btn-touch-shop');
+        if (btnTouchShop) {
+            btnTouchShop.addEventListener('touchstart', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                this.toggleInGameShop();
+            }, { passive: false });
+            btnTouchShop.addEventListener('click', (e) => {
+                this.toggleInGameShop();
+            });
+        }
+
+        const btnTouchPause = document.getElementById('btn-touch-pause');
+        if (btnTouchPause) {
+            btnTouchPause.addEventListener('touchstart', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                this.togglePause();
+            }, { passive: false });
+            btnTouchPause.addEventListener('click', (e) => {
+                this.togglePause();
+            });
+        }
     }
 
     // --- UI SETUP ---
@@ -784,6 +1062,15 @@ class Game {
             this.updateContinueButton();
         });
 
+        // Theme buttons listener
+        document.querySelectorAll('.theme-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const theme = e.currentTarget.dataset.theme;
+                this.applyTheme(theme);
+                window.soundManager.playUpgradeSuccess();
+            });
+        });
+
         this.updateContinueButton();
     }
 
@@ -853,6 +1140,8 @@ class Game {
         this.particles = [];
         this.floatingTexts = [];
         this.currentBoss = null;
+        this.bossWarningActive = false;
+        this.bossPendingSpawn = false;
 
         this.initPlayer();
         this.setupWave();
@@ -936,6 +1225,11 @@ class Game {
         if (this.keys['KeyW']) dy -= 1;
         if (this.keys['KeyS']) dy += 1;
 
+        if (this.joystick && this.joystick.active && (this.joystick.x !== 0 || this.joystick.y !== 0)) {
+            dx = this.joystick.x;
+            dy = this.joystick.y;
+        }
+
         if (dx === 0 && dy === 0) {
             dx = Math.cos(p.angle);
             dy = Math.sin(p.angle);
@@ -1011,9 +1305,22 @@ class Game {
             this.state = 'PAUSED';
             this.showModal('pause-modal');
         } else if (this.state === 'PAUSED') {
-            this.state = 'PLAYING';
             this.hideModal('pause-modal');
+            this.state = 'PLAYING';
             this.lastTime = performance.now();
+
+            // RESUME BOSS RECOVERY
+            if (this.wave % 5 === 0) {
+                if (!this.currentBoss && !this.isWaveTransitioning && (this.bossPendingSpawn || !this.bossWarningActive)) {
+                    this.bossPendingSpawn = false;
+                    this.spawnBoss();
+                }
+                if (this.currentBoss) {
+                    const bossHud = document.getElementById('boss-hud');
+                    if (bossHud) bossHud.classList.add('active');
+                    this.updateBossHUD();
+                }
+            }
         }
     }
 
@@ -1071,6 +1378,19 @@ class Game {
             this.shopOpenedFromGame = false;
             this.state = 'PLAYING';
             this.lastTime = performance.now();
+
+            // RESUME BOSS RECOVERY: If in boss wave and boss was pending or active
+            if (this.wave % 5 === 0) {
+                if (!this.currentBoss && !this.isWaveTransitioning && (this.bossPendingSpawn || !this.bossWarningActive)) {
+                    this.bossPendingSpawn = false;
+                    this.spawnBoss();
+                }
+                if (this.currentBoss) {
+                    const bossHud = document.getElementById('boss-hud');
+                    if (bossHud) bossHud.classList.add('active');
+                    this.updateBossHUD();
+                }
+            }
         }
     }
 
@@ -1099,6 +1419,15 @@ class Game {
             this.bombCharge = Math.min(100, this.bombCharge + dt * 5);
             const btn = document.getElementById('btn-hud-bomb');
             if (btn) btn.disabled = (this.bombCharge < 100);
+        }
+
+        const touchBombBtn = document.getElementById('btn-touch-bomb');
+        const touchBombPct = document.getElementById('touch-bomb-pct');
+        if (touchBombBtn) {
+            touchBombBtn.style.opacity = this.bombCharge >= 100 ? '1' : '0.6';
+        }
+        if (touchBombPct) {
+            touchBombPct.textContent = `${Math.floor(this.bombCharge)}%`;
         }
 
         this.updatePlayer(dt);
@@ -1149,7 +1478,7 @@ class Game {
                 p.isDashing = false;
             }
         } else {
-            // Normal 8-directional movement
+            // Normal 8-directional movement & Mobile Joystick
             let moveX = 0;
             let moveY = 0;
 
@@ -1158,10 +1487,16 @@ class Game {
             if (this.keys['KeyW']) moveY -= 1;
             if (this.keys['KeyS']) moveY += 1;
 
+            if (this.joystick && this.joystick.active) {
+                moveX = this.joystick.x;
+                moveY = this.joystick.y;
+            }
+
             if (moveX !== 0 || moveY !== 0) {
                 const len = Math.hypot(moveX, moveY);
-                p.x += (moveX / len) * p.speed * dt;
-                p.y += (moveY / len) * p.speed * dt;
+                const intensity = Math.min(1.0, len);
+                p.x += (moveX / len) * p.speed * intensity * dt;
+                p.y += (moveY / len) * p.speed * intensity * dt;
 
                 const rearAngle = p.angle + Math.PI;
                 this.particles.push(new Particle(
@@ -1195,7 +1530,7 @@ class Game {
         p.y = Math.max(30, Math.min(this.height - 30, p.y));
 
         // --- SHOOTING ---
-        const isShooting = this.mouse.isDown || this.keys['Space'] || this.keys['KeyJ'] || keyboardShooting;
+        const isShooting = this.mouse.isDown || this.keys['Space'] || this.keys['KeyJ'] || keyboardShooting || this.touchShooting;
         const currentInterval = p.overdriveTimer > 0 ? p.fireInterval * 0.45 : p.fireInterval;
 
         p.fireCooldown -= dt;
@@ -1293,6 +1628,8 @@ class Game {
     // --- WAVE PROGRESSION (FIXED & SCALED) ---
     setupWave() {
         this.isWaveTransitioning = false;
+        this.bossWarningActive = false;
+        this.bossPendingSpawn = false;
         const isBossWave = (this.wave % 5 === 0);
 
         if (isBossWave) {
@@ -1323,7 +1660,14 @@ class Game {
         }
 
         const isBossWave = (this.wave % 5 === 0);
-        if (isBossWave) return;
+        if (isBossWave) {
+            // Failsafe recovery: if warning is finished and boss not spawned, spawn it!
+            if (!this.bossWarningActive && !this.isWaveTransitioning && !this.currentBoss) {
+                this.bossPendingSpawn = false;
+                this.spawnBoss();
+            }
+            return;
+        }
 
         // Regular waves: spawn enemies until quota reached
         if (this.waveEnemiesSpawned < this.waveEnemiesToSpawn) {
@@ -1374,6 +1718,8 @@ class Game {
     }
 
     triggerBossWarning() {
+        this.bossWarningActive = true;
+        this.bossPendingSpawn = false;
         window.soundManager.playBossWarning();
         const banner = document.getElementById('boss-warning-banner');
         let bossName = "ЭГИДА-ДРЕДНОУТ";
@@ -1387,17 +1733,24 @@ class Game {
 
         setTimeout(() => {
             if (banner) banner.style.display = 'none';
-            if (this.state === 'PLAYING' && !this.currentBoss) {
-                this.spawnBoss();
+            this.bossWarningActive = false;
+            if (!this.currentBoss) {
+                if (this.state === 'PLAYING') {
+                    this.spawnBoss();
+                } else {
+                    this.bossPendingSpawn = true;
+                }
             }
         }, 2600);
     }
 
     spawnBoss() {
+        if (this.currentBoss) return;
         this.currentBoss = new Boss(this.wave, this.width / 2, -120);
         const bossHud = document.getElementById('boss-hud');
         if (bossHud) bossHud.classList.add('active');
         document.getElementById('boss-name').textContent = this.currentBoss.name;
+        this.updateBossHUD();
     }
 
     updateBossHUD() {
@@ -1426,6 +1779,8 @@ class Game {
 
         this.addScore(5000 * Math.floor(this.wave / 5));
         this.currentBoss = null;
+        this.bossWarningActive = false;
+        this.bossPendingSpawn = false;
         const bossHud = document.getElementById('boss-hud');
         if (bossHud) bossHud.classList.remove('active');
 
@@ -2512,7 +2867,8 @@ class Boss {
         if (this.y < this.targetY) {
             this.y += 65 * dt;
         } else {
-            this.x = (game.width / 2) + Math.sin(this.time * 1.1) * 240;
+            const patrolRange = Math.min(260, game.width * 0.35);
+            this.x = (game.width / 2) + Math.sin(this.time * 1.1) * patrolRange;
             this.y = this.targetY + Math.cos(this.time * 0.8) * 30;
         }
 
