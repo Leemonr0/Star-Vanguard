@@ -1,0 +1,27 @@
+{
+  "name": "Star Vanguard 360",
+  "short_name": "StarVanguard",
+  "description": "Космический 360° ретро-шутер с боссами, прокачкой и магазином улучшений",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#05070f",
+  "theme_color": "#00f0ff",
+  "lang": "ru",
+  "icons": [
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["games", "arcade", "action"]
+}
