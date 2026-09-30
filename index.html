@@ -5,6 +5,12 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>Star Vanguard - Космический Шутер с Прокачкой и Боссами</title>
     <link rel="stylesheet" href="styles.css">
+    <link rel="manifest" href="manifest.json">
+    <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+    <link rel="apple-touch-icon" href="icon-192.png">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="theme-color" content="#00f0ff">
 </head>
 <body>
 
@@ -115,27 +121,43 @@
 
         <!-- MOBILE TOUCH CONTROLS OVERLAY -->
         <div id="mobile-controls">
-            <!-- Left Side: Virtual Joystick Zone -->
+            <!-- Dynamic Floating Virtual Joystick Zone (covers left 50% of screen) -->
             <div id="joystick-zone">
                 <div id="joystick-base">
                     <div id="joystick-knob"></div>
+                    <div id="joystick-ring-glow"></div>
                 </div>
             </div>
 
-            <!-- Right Side: Action Touch Buttons -->
+            <!-- Right Side: Ergonomic Action Buttons -->
             <div id="mobile-actions">
-                <button id="btn-touch-dash" class="touch-btn touch-dash" title="Рывок [⚡]">
-                    <span class="touch-icon">⚡</span>
-                    <span class="touch-text">РЫВОК</span>
+                <!-- Smart Auto-Aim Toggle Button -->
+                <button id="btn-touch-aim" class="touch-pill-btn active" title="Автоприцел: ВКЛ / ВЫКЛ">
+                    <span class="touch-icon">🎯</span>
+                    <span id="touch-aim-text" class="touch-pill-text">АВТО: ВКЛ</span>
                 </button>
-                <button id="btn-touch-bomb" class="touch-btn touch-bomb" title="Сверхбомба [💣]">
-                    <span class="touch-icon">💣</span>
-                    <span class="touch-text">БОМБА</span>
-                    <span id="touch-bomb-pct" class="touch-bomb-pct">100%</span>
-                    <div class="touch-bomb-ring" id="touch-bomb-ring"></div>
-                </button>
+
+                <div class="touch-primary-actions">
+                    <!-- Dash Button with tactile glow & cooldown -->
+                    <button id="btn-touch-dash" class="touch-btn touch-dash" title="Рывок с неуязвимостью [⚡]">
+                        <span class="touch-icon">⚡</span>
+                        <span class="touch-text">РЫВОК</span>
+                        <div id="touch-dash-cooldown" class="touch-cooldown-overlay"></div>
+                    </button>
+
+                    <!-- Superbomb Button with charge percentage and ready pulse -->
+                    <button id="btn-touch-bomb" class="touch-btn touch-bomb" title="ЭМИ Сверхбомба [💣]">
+                        <span class="touch-icon">💣</span>
+                        <span class="touch-text">БОМБА</span>
+                        <span id="touch-bomb-pct" class="touch-bomb-pct">100%</span>
+                        <div class="touch-bomb-ring" id="touch-bomb-ring"></div>
+                    </button>
+                </div>
+
+                <!-- Bottom Mini Utility Row -->
                 <div class="touch-row-mini">
-                    <button id="btn-touch-shop" class="touch-mini-btn" title="Магазин [🛒]">🛒</button>
+                    <button id="btn-touch-shop" class="touch-mini-btn" title="Магазин в бою [🛒]">🛒</button>
+                    <button id="btn-touch-fullscreen" class="touch-mini-btn" title="Во весь экран [⛶]">⛶</button>
                     <button id="btn-touch-pause" class="touch-mini-btn" title="Пауза [⏸️]">⏸️</button>
                 </div>
             </div>
@@ -160,6 +182,16 @@
                     <button id="btn-guide" class="btn btn-secondary">
                         📖 КАК ИГРАТЬ
                     </button>
+                </div>
+
+                <!-- MOBILE APP / PWA INSTALL & APK DOWNLOAD -->
+                <div class="menu-mobile-links">
+                    <button id="btn-install-pwa" class="btn btn-secondary btn-mobile-action" style="display: none;">
+                        📲 УСТАНОВИТЬ НА ТЕЛЕФОН
+                    </button>
+                    <a id="btn-download-apk" href="StarVanguard.apk" download="StarVanguard.apk" class="btn btn-secondary btn-mobile-action" style="text-decoration: none; border-color: var(--green); color: var(--green);">
+                        📥 СКАЧАТЬ АНДРОИД APK
+                    </a>
                 </div>
 
                 <!-- THEME SELECTOR IN MAIN MENU -->
@@ -248,9 +280,9 @@
                             <span class="key-badge">Esc / P</span>
                             <span>Пауза</span>
                         </div>
-                        <div class="key-item" style="grid-column: 1 / -1; border-color: var(--cyan); background: rgba(0, 240, 255, 0.05);">
-                            <span class="key-badge">📱 Смартфоны</span>
-                            <span>Слева: джойстик полета. Справа: касание для огня и прицела. Кнопки: ⚡ Рывок, 💣 Бомба, 🛒 Магазин</span>
+                        <div class="key-item" style="grid-column: 1 / -1; border-color: var(--cyan); background: rgba(0, 240, 255, 0.08); padding: 12px 14px;">
+                            <span class="key-badge" style="background: var(--cyan); color: #05070f; font-weight: 900;">📱 ТЕЛЕФОНЫ</span>
+                            <span style="line-height: 1.5;"><b>Слева:</b> динамический плавающий джойстик (нажимайте в любое место слева).<br><b>Справа:</b> свободная область для ручного наведения на 360° и огня.<br><b>Кнопки:</b> 🎯 Умный автоприцел (сам захватывает врагов), ⚡ Рывок с неуязвимостью, 💣 ЭМИ-бомба, 🛒 Магазин, ⛶ На весь экран. Поддерживается виброотклик!</span>
                         </div>
                     </div>
 

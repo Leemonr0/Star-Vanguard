@@ -307,11 +307,18 @@ class Game {
         this.bossWarningActive = false;
         this.bossPendingSpawn = false;
 
-        // Mobile / Touch controls state
+        // Mobile / Dynamic Floating Touch Controls state
         this.joystick = { x: 0, y: 0, active: false };
-        this.touchShooting = false;
+        this.joystickOrigin = { x: 0, y: 0 };
         this.joystickTouchId = null;
         this.aimTouchId = null;
+        this.touchShooting = false;
+        this.autoAimEnabled = true; // Smart auto-aim assist (on by default for mobile comfort)
+        this.autoAimTarget = null;
+        this.isAutoAiming = false;
+        this.autoAimShooting = false;
+        this.deferredPwaPrompt = null;
+        this.lastCoinVibrateTime = 0;
 
         this.resizeCanvas();
         window.addEventListener('resize', () => this.resizeCanvas());
@@ -449,6 +456,7 @@ class Game {
                 if (data.highScore !== undefined) this.highScore = data.highScore;
                 if (data.selectedShipId && this.ships[data.selectedShipId]) this.selectedShipId = data.selectedShipId;
                 if (data.autoWaveEnabled !== undefined) this.autoWaveEnabled = !!data.autoWaveEnabled;
+                if (data.autoAimEnabled !== undefined) this.autoAimEnabled = !!data.autoAimEnabled;
                 if (data.soundEnabled !== undefined && window.soundManager) {
                     window.soundManager.enabled = !!data.soundEnabled;
                 }
@@ -508,6 +516,7 @@ class Game {
                 highScore: this.highScore,
                 selectedShipId: this.selectedShipId,
                 autoWaveEnabled: this.autoWaveEnabled,
+                autoAimEnabled: this.autoAimEnabled,
                 soundEnabled: window.soundManager ? window.soundManager.enabled : true,
                 unlockedShips: unlockedList,
                 theme: this.currentTheme,
@@ -518,6 +527,15 @@ class Game {
         } catch (e) {
             console.warn('Save failed:', e);
         }
+    }
+
+    // Tactile haptic feedback for mobile phones
+    vibrate(pattern) {
+        try {
+            if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
+                navigator.vibrate(pattern);
+            }
+        } catch (e) {}
     }
 
     updateContinueButton() {
@@ -741,19 +759,16 @@ class Game {
             if (wrapper) wrapper.classList.add('touch-mode');
         }, { once: true, passive: true });
 
-        // --- VIRTUAL JOYSTICK (LEFT THUMB) ---
+        // --- DYNAMIC FLOATING VIRTUAL JOYSTICK (LEFT THUMB) ---
         const joystickZone = document.getElementById('joystick-zone');
         const joystickBase = document.getElementById('joystick-base');
         const joystickKnob = document.getElementById('joystick-knob');
 
         const updateJoystick = (touch) => {
             if (!joystickBase || !joystickKnob) return;
-            const rect = joystickBase.getBoundingClientRect();
-            const centerX = rect.left + rect.width / 2;
-            const centerY = rect.top + rect.height / 2;
-            let dx = touch.clientX - centerX;
-            let dy = touch.clientY - centerY;
-            const maxRadius = Math.max(30, rect.width / 2 - 8);
+            let dx = touch.clientX - this.joystickOrigin.x;
+            let dy = touch.clientY - this.joystickOrigin.y;
+            const maxRadius = 50;
             const dist = Math.hypot(dx, dy);
 
             if (dist > maxRadius) {
@@ -761,16 +776,33 @@ class Game {
                 dy = (dy / dist) * maxRadius;
             }
 
-            joystickKnob.style.transform = `translate(${dx}px, ${dy}px)`;
-            this.joystick = {
-                x: dx / maxRadius,
-                y: dy / maxRadius,
-                active: true
-            };
+            // Deadzone of 6px to avoid jitter
+            const deadzone = 6;
+            if (dist < deadzone) {
+                this.joystick = { x: 0, y: 0, active: true };
+            } else {
+                const factor = Math.min(1.0, (dist - deadzone) / (maxRadius - deadzone));
+                this.joystick = {
+                    x: (dx / dist) * factor,
+                    y: (dy / dist) * factor,
+                    active: true
+                };
+            }
+
+            joystickKnob.style.transform = `translate3d(${dx}px, ${dy}px, 0)`;
         };
 
         const resetJoystick = () => {
-            if (joystickKnob) joystickKnob.style.transform = 'translate(0px, 0px)';
+            if (joystickKnob) {
+                joystickKnob.style.transition = 'transform 0.15s cubic-bezier(0.18, 0.89, 0.32, 1.28)';
+                joystickKnob.style.transform = 'translate3d(0px, 0px, 0)';
+                setTimeout(() => {
+                    if (joystickKnob) joystickKnob.style.transition = '';
+                }, 150);
+            }
+            if (joystickBase) {
+                joystickBase.classList.remove('active');
+            }
             this.joystick = { x: 0, y: 0, active: false };
             this.joystickTouchId = null;
         };
@@ -778,16 +810,29 @@ class Game {
         if (joystickZone) {
             joystickZone.addEventListener('touchstart', (e) => {
                 e.preventDefault();
-                e.stopPropagation();
                 window.soundManager.init();
+                if (this.joystickTouchId !== null) return; // already active
+
                 const touch = e.changedTouches[0];
                 this.joystickTouchId = touch.identifier;
-                updateJoystick(touch);
+                this.joystickOrigin = { x: touch.clientX, y: touch.clientY };
+
+                // Center joystick base exactly under the player's thumb!
+                if (joystickBase) {
+                    joystickBase.style.left = `${touch.clientX}px`;
+                    joystickBase.style.top = `${touch.clientY}px`;
+                    joystickBase.style.bottom = 'auto';
+                    joystickBase.classList.add('active');
+                }
+                if (joystickKnob) {
+                    joystickKnob.style.transform = 'translate3d(0px, 0px, 0)';
+                }
+
+                this.joystick = { x: 0, y: 0, active: true };
             }, { passive: false });
 
             joystickZone.addEventListener('touchmove', (e) => {
                 e.preventDefault();
-                e.stopPropagation();
                 for (let i = 0; i < e.changedTouches.length; i++) {
                     const t = e.changedTouches[i];
                     if (t.identifier === this.joystickTouchId) {
@@ -798,8 +843,6 @@ class Game {
             }, { passive: false });
 
             const endJoystick = (e) => {
-                e.preventDefault();
-                e.stopPropagation();
                 for (let i = 0; i < e.changedTouches.length; i++) {
                     if (e.changedTouches[i].identifier === this.joystickTouchId) {
                         resetJoystick();
@@ -812,7 +855,7 @@ class Game {
             joystickZone.addEventListener('touchcancel', endJoystick, { passive: false });
         }
 
-        // --- CANVAS TOUCH (RIGHT THUMB: AIM & CONTINUOUS FIRE) ---
+        // --- CANVAS TOUCH (RIGHT THUMB: MANUAL 360° AIM & CONTINUOUS FIRE) ---
         this.canvas.addEventListener('touchstart', (e) => {
             window.soundManager.init();
             if (this.state !== 'PLAYING') return;
@@ -875,51 +918,117 @@ class Game {
         this.canvas.addEventListener('touchcancel', endAimTouch, { passive: true });
 
         // --- MOBILE TOUCH BUTTONS ---
+        const btnTouchAim = document.getElementById('btn-touch-aim');
+        const touchAimText = document.getElementById('touch-aim-text');
+        if (btnTouchAim) {
+            btnTouchAim.classList.toggle('active', this.autoAimEnabled);
+            if (touchAimText) touchAimText.textContent = this.autoAimEnabled ? 'АВТО: ВКЛ' : 'РУЧНОЙ';
+
+            const toggleAim = (e) => {
+                if (e) { e.preventDefault(); e.stopPropagation(); }
+                this.autoAimEnabled = !this.autoAimEnabled;
+                btnTouchAim.classList.toggle('active', this.autoAimEnabled);
+                if (touchAimText) {
+                    touchAimText.textContent = this.autoAimEnabled ? 'АВТО: ВКЛ' : 'РУЧНОЙ';
+                }
+                this.saveGame(false);
+                this.vibrate(18);
+                window.soundManager.playPowerUp();
+            };
+            btnTouchAim.addEventListener('touchstart', toggleAim, { passive: false });
+            btnTouchAim.addEventListener('click', toggleAim);
+        }
+
         const btnTouchDash = document.getElementById('btn-touch-dash');
         if (btnTouchDash) {
-            btnTouchDash.addEventListener('touchstart', (e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                if (this.state === 'PLAYING') this.dashPlayer();
-            }, { passive: false });
-            btnTouchDash.addEventListener('click', (e) => {
-                if (this.state === 'PLAYING') this.dashPlayer();
-            });
+            const doDash = (e) => {
+                if (e) { e.preventDefault(); e.stopPropagation(); }
+                if (this.state === 'PLAYING') {
+                    this.dashPlayer();
+                }
+            };
+            btnTouchDash.addEventListener('touchstart', doDash, { passive: false });
+            btnTouchDash.addEventListener('click', doDash);
         }
 
         const btnTouchBomb = document.getElementById('btn-touch-bomb');
         if (btnTouchBomb) {
-            btnTouchBomb.addEventListener('touchstart', (e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                if (this.state === 'PLAYING') this.useBomb();
-            }, { passive: false });
-            btnTouchBomb.addEventListener('click', (e) => {
-                if (this.state === 'PLAYING') this.useBomb();
-            });
+            const doBomb = (e) => {
+                if (e) { e.preventDefault(); e.stopPropagation(); }
+                if (this.state === 'PLAYING') {
+                    this.useBomb();
+                }
+            };
+            btnTouchBomb.addEventListener('touchstart', doBomb, { passive: false });
+            btnTouchBomb.addEventListener('click', doBomb);
         }
 
         const btnTouchShop = document.getElementById('btn-touch-shop');
         if (btnTouchShop) {
-            btnTouchShop.addEventListener('touchstart', (e) => {
-                e.preventDefault();
-                e.stopPropagation();
+            const doShop = (e) => {
+                if (e) { e.preventDefault(); e.stopPropagation(); }
                 this.toggleInGameShop();
-            }, { passive: false });
-            btnTouchShop.addEventListener('click', (e) => {
-                this.toggleInGameShop();
-            });
+                this.vibrate(15);
+            };
+            btnTouchShop.addEventListener('touchstart', doShop, { passive: false });
+            btnTouchShop.addEventListener('click', doShop);
+        }
+
+        const btnTouchFullscreen = document.getElementById('btn-touch-fullscreen');
+        if (btnTouchFullscreen) {
+            const toggleFs = (e) => {
+                if (e) { e.preventDefault(); e.stopPropagation(); }
+                this.vibrate(15);
+                if (!document.fullscreenElement) {
+                    document.documentElement.requestFullscreen().catch(() => {});
+                } else {
+                    document.exitFullscreen().catch(() => {});
+                }
+            };
+            btnTouchFullscreen.addEventListener('touchstart', toggleFs, { passive: false });
+            btnTouchFullscreen.addEventListener('click', toggleFs);
         }
 
         const btnTouchPause = document.getElementById('btn-touch-pause');
         if (btnTouchPause) {
-            btnTouchPause.addEventListener('touchstart', (e) => {
-                e.preventDefault();
-                e.stopPropagation();
+            const doPause = (e) => {
+                if (e) { e.preventDefault(); e.stopPropagation(); }
                 this.togglePause();
-            }, { passive: false });
-            btnTouchPause.addEventListener('click', (e) => {
-                this.togglePause();
+                this.vibrate(15);
+            };
+            btnTouchPause.addEventListener('touchstart', doPause, { passive: false });
+            btnTouchPause.addEventListener('click', doPause);
+        }
+
+        // PWA beforeinstallprompt handler
+        const btnInstallPwa = document.getElementById('btn-install-pwa');
+        window.addEventListener('beforeinstallprompt', (e) => {
+            e.preventDefault();
+            this.deferredPwaPrompt = e;
+            if (btnInstallPwa) {
+                btnInstallPwa.style.display = 'inline-flex';
+            }
+        });
+
+        if (btnInstallPwa) {
+            btnInstallPwa.addEventListener('click', async () => {
+                if (this.deferredPwaPrompt) {
+                    this.deferredPwaPrompt.prompt();
+                    const choice = await this.deferredPwaPrompt.userChoice;
+                    if (choice.outcome === 'accepted') {
+                        btnInstallPwa.style.display = 'none';
+                    }
+                    this.deferredPwaPrompt = null;
+                } else {
+                    alert('Для установки приложения на телефон: нажмите меню браузера (⋮ или ⎙) -> «Добавить на главный экран»');
+                }
+            });
+        }
+
+        // Register Service Worker for PWA
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('sw.js').catch((err) => {
+                console.log('SW registration note:', err);
             });
         }
     }
@@ -1211,12 +1320,13 @@ class Game {
     // --- DASH WITH 100% I-FRAMES ---
     dashPlayer() {
         const p = this.player;
-        if (!p || p.isDashing || p.stamina < 30) return;
+        if (!p || p.isDashing || p.stamina < 30) return false;
 
         p.stamina -= 30;
         p.isDashing = true;
         p.dashTimer = 0.28;
         p.invulnerableTimer = 0.35; // Guaranteed i-frames
+        this.vibrate(20);
         window.soundManager.playDash();
 
         let dx = 0, dy = 0;
@@ -1268,11 +1378,13 @@ class Game {
                 ));
             }
         }
+        return true;
     }
 
     useBomb() {
-        if (this.state !== 'PLAYING' || !this.player || this.bombCharge < 100) return;
+        if (this.state !== 'PLAYING' || !this.player || this.bombCharge < 100) return false;
         this.bombCharge = 0;
+        this.vibrate([50, 40, 80]);
         window.soundManager.playBomb();
         this.screenShake = 28;
 
@@ -1298,6 +1410,7 @@ class Game {
         }
 
         this.addFloatingText(this.player.x, this.player.y - 40, 'ЭМИ ВСПЫШКА [-60 HP]!', '#a855f7', 22);
+        return true;
     }
 
     togglePause() {
@@ -1424,10 +1537,18 @@ class Game {
         const touchBombBtn = document.getElementById('btn-touch-bomb');
         const touchBombPct = document.getElementById('touch-bomb-pct');
         if (touchBombBtn) {
-            touchBombBtn.style.opacity = this.bombCharge >= 100 ? '1' : '0.6';
+            const isReady = this.bombCharge >= 100;
+            touchBombBtn.style.opacity = isReady ? '1' : '0.65';
+            touchBombBtn.classList.toggle('ready', isReady);
         }
         if (touchBombPct) {
             touchBombPct.textContent = `${Math.floor(this.bombCharge)}%`;
+        }
+
+        const dashCooldown = document.getElementById('touch-dash-cooldown');
+        if (dashCooldown && this.player) {
+            const ratio = this.player.stamina / this.player.maxStamina;
+            dashCooldown.style.transform = `scaleY(${Math.max(0, 1 - ratio)})`;
         }
 
         this.updatePlayer(dt);
@@ -1511,7 +1632,7 @@ class Game {
             }
         }
 
-        // --- 360-DEGREE ROTATION & AIMING ---
+        // --- 360-DEGREE ROTATION & AIMING (WITH SMART AUTO-AIM & MANUAL OVERRIDE) ---
         let arrowX = 0, arrowY = 0;
         if (this.keys['ArrowLeft']) arrowX -= 1;
         if (this.keys['ArrowRight']) arrowX += 1;
@@ -1519,18 +1640,95 @@ class Game {
         if (this.keys['ArrowDown']) arrowY += 1;
 
         let keyboardShooting = false;
-        if (arrowX !== 0 || arrowY !== 0) {
+        const hasManualTouchAim = this.aimTouchId !== null && this.touchShooting;
+        const hasKeyboardAim = arrowX !== 0 || arrowY !== 0;
+        const hasMouseAim = this.mouse.active && !this.joystick.active;
+
+        if (hasKeyboardAim) {
+            // Priority 1: Keyboard arrows
             p.angle = Math.atan2(arrowY, arrowX);
             keyboardShooting = true;
-        } else if (this.mouse.active) {
+            this.autoAimTarget = null;
+            this.isAutoAiming = false;
+            this.autoAimShooting = false;
+        } else if (hasManualTouchAim) {
+            // Priority 2: Manual touch aiming (right thumb) overrides auto-aim!
             p.angle = Math.atan2(this.mouse.y - p.y, this.mouse.x - p.x);
+            this.autoAimTarget = null;
+            this.isAutoAiming = false;
+            this.autoAimShooting = false;
+        } else if (hasMouseAim) {
+            // Priority 3: Desktop mouse cursor
+            p.angle = Math.atan2(this.mouse.y - p.y, this.mouse.x - p.x);
+            this.autoAimTarget = null;
+            this.isAutoAiming = false;
+            this.autoAimShooting = false;
+        } else if (this.autoAimEnabled) {
+            // Priority 4: SMART AUTO-AIM ASSIST (Mobile perfection!)
+            let bestTarget = null;
+            let minDist = 850;
+
+            // Target boss first if alive
+            if (this.currentBoss && !this.currentBoss.isDead) {
+                const d = Math.hypot(this.currentBoss.x - p.x, this.currentBoss.y - p.y);
+                if (d <= minDist) {
+                    bestTarget = this.currentBoss;
+                    minDist = d;
+                }
+            }
+
+            // Otherwise acquire nearest enemy
+            if (!bestTarget) {
+                for (let enemy of this.enemies) {
+                    if (!enemy.isDead) {
+                        const d = Math.hypot(enemy.x - p.x, enemy.y - p.y);
+                        if (d < minDist) {
+                            minDist = d;
+                            bestTarget = enemy;
+                        }
+                    }
+                }
+            }
+
+            if (bestTarget) {
+                this.autoAimTarget = bestTarget;
+                this.isAutoAiming = true;
+                this.autoAimShooting = true;
+
+                const targetAngle = Math.atan2(bestTarget.y - p.y, bestTarget.x - p.x);
+                let diff = targetAngle - p.angle;
+                while (diff < -Math.PI) diff += Math.PI * 2;
+                while (diff > Math.PI) diff -= Math.PI * 2;
+                p.angle += diff * Math.min(1.0, dt * 16);
+            } else {
+                this.autoAimTarget = null;
+                this.isAutoAiming = false;
+                this.autoAimShooting = false;
+
+                // Face moving direction if flying with joystick
+                if (this.joystick && this.joystick.active && (this.joystick.x !== 0 || this.joystick.y !== 0)) {
+                    const moveAngle = Math.atan2(this.joystick.y, this.joystick.x);
+                    let diff = moveAngle - p.angle;
+                    while (diff < -Math.PI) diff += Math.PI * 2;
+                    while (diff > Math.PI) diff -= Math.PI * 2;
+                    p.angle += diff * Math.min(1.0, dt * 10);
+                }
+            }
+        } else {
+            this.autoAimTarget = null;
+            this.isAutoAiming = false;
+            this.autoAimShooting = false;
+
+            if (this.joystick && this.joystick.active && (this.joystick.x !== 0 || this.joystick.y !== 0)) {
+                p.angle = Math.atan2(this.joystick.y, this.joystick.x);
+            }
         }
 
         p.x = Math.max(30, Math.min(this.width - 30, p.x));
         p.y = Math.max(30, Math.min(this.height - 30, p.y));
 
         // --- SHOOTING ---
-        const isShooting = this.mouse.isDown || this.keys['Space'] || this.keys['KeyJ'] || keyboardShooting || this.touchShooting;
+        const isShooting = this.mouse.isDown || this.keys['Space'] || this.keys['KeyJ'] || keyboardShooting || this.touchShooting || (this.autoAimEnabled && this.autoAimShooting);
         const currentInterval = p.overdriveTimer > 0 ? p.fireInterval * 0.45 : p.fireInterval;
 
         p.fireCooldown -= dt;
@@ -2054,11 +2252,17 @@ class Game {
             this.runCreditsCollected += item.value;
             this.bombCharge = Math.min(100, this.bombCharge + 3);
             window.soundManager.playCoin();
+            const now = performance.now();
+            if (now - this.lastCoinVibrateTime > 75) {
+                this.vibrate(8);
+                this.lastCoinVibrateTime = now;
+            }
             this.addFloatingText(item.x, item.y, `+${item.value} 💎`, '#ffd166', 15);
             this.updateHUDStats();
             return;
         }
 
+        this.vibrate(25);
         switch (item.type) {
             case 'heal':
                 this.player.hp = Math.min(this.player.maxHp, this.player.hp + 35);
@@ -2180,6 +2384,7 @@ class Game {
         if (!p || p.invulnerableTimer > 0 || p.isDashing) return;
 
         window.soundManager.playPlayerHit();
+        this.vibrate(35);
         this.screenShake = 12;
         p.shieldRegenCooldown = 3.5;
 
@@ -2239,6 +2444,7 @@ class Game {
     // --- GAME OVER ---
     gameOver() {
         this.state = 'GAMEOVER';
+        this.vibrate([100, 50, 100, 50, 200]);
         window.soundManager.playExplosion('boss');
         this.savedRun = null;
         this.saveGame(false);
@@ -2278,6 +2484,12 @@ class Game {
         for (let item of this.pickups) item.draw(this.ctx);
         for (let enemy of this.enemies) enemy.draw(this.ctx);
         if (this.currentBoss) this.currentBoss.draw(this.ctx);
+
+        // Lock-on target reticle for smart auto-aim
+        if (this.autoAimTarget && this.isAutoAiming && (this.enemies.includes(this.autoAimTarget) || this.autoAimTarget === this.currentBoss)) {
+            this.drawAutoAimReticle(this.ctx, this.autoAimTarget);
+        }
+
         for (let beam of this.bossBeams) beam.draw(this.ctx);
         for (let b of this.playerBullets) b.draw(this.ctx);
         for (let b of this.enemyBullets) b.draw(this.ctx);
@@ -2290,6 +2502,65 @@ class Game {
         for (let ft of this.floatingTexts) ft.draw(this.ctx);
 
         this.ctx.restore();
+    }
+
+    // Sleek sci-fi lock-on targeting reticle
+    drawAutoAimReticle(ctx, target) {
+        if (!target || target.isDead) return;
+        const now = performance.now() * 0.003;
+        const r = (target.radius || 24) + 12;
+
+        ctx.save();
+        ctx.translate(target.x, target.y);
+
+        // Rotating lock brackets
+        ctx.rotate(now);
+        ctx.strokeStyle = '#00f0ff';
+        ctx.lineWidth = 2;
+        ctx.shadowColor = '#00f0ff';
+        ctx.shadowBlur = 10;
+
+        const bLen = 10;
+        ctx.beginPath();
+        // Top-left
+        ctx.moveTo(-r, -r + bLen); ctx.lineTo(-r, -r); ctx.lineTo(-r + bLen, -r);
+        // Top-right
+        ctx.moveTo(r - bLen, -r); ctx.lineTo(r, -r); ctx.lineTo(r, -r + bLen);
+        // Bottom-right
+        ctx.moveTo(r, r - bLen); ctx.lineTo(r, r); ctx.lineTo(r - bLen, r);
+        // Bottom-left
+        ctx.moveTo(-r + bLen, r); ctx.lineTo(-r, r); ctx.lineTo(-r, r - bLen);
+        ctx.stroke();
+
+        // Pulsing tick indicators
+        const pulse = Math.sin(now * 4) * 3;
+        ctx.beginPath();
+        ctx.moveTo(0, -r + 4 + pulse); ctx.lineTo(0, -r + 10 + pulse);
+        ctx.moveTo(0, r - 4 - pulse);  ctx.lineTo(0, r - 10 - pulse);
+        ctx.moveTo(-r + 4 + pulse, 0); ctx.lineTo(-r + 10 + pulse, 0);
+        ctx.moveTo(r - 4 - pulse, 0);  ctx.lineTo(r - 10 - pulse, 0);
+        ctx.stroke();
+
+        ctx.rotate(-now); // Reset rotation for text label
+        ctx.font = 'bold 10px Rajdhani, sans-serif';
+        ctx.fillStyle = '#00f0ff';
+        ctx.textAlign = 'center';
+        ctx.fillText('TARGET LOCK', 0, -r - 6);
+
+        ctx.restore();
+
+        // High-tech dashed laser guide from player
+        if (this.player) {
+            ctx.save();
+            ctx.beginPath();
+            ctx.moveTo(this.player.x, this.player.y);
+            ctx.lineTo(target.x, target.y);
+            ctx.strokeStyle = 'rgba(0, 240, 255, 0.2)';
+            ctx.lineWidth = 1;
+            ctx.setLineDash([5, 5]);
+            ctx.stroke();
+            ctx.restore();
+        }
     }
 
     drawPlayer(ctx) {
